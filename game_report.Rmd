@@ -1,0 +1,225 @@
+---
+title: "Case approach"
+author: "Bárbara Barbosa"
+date: "November 1, 2016"
+output: pdf_document
+---
+
+Load packages and read file. Check out some data.
+```{r}
+library(randomForest)
+base <- read.csv('~/workspace/games/training_set.csv', na.strings = 'NULL')
+summary(base)
+```
+
+Normalize variables, since `read.csv` reads columns as categorical variables, it's necessary to change them to numbers.
+
+```{r}
+base$revenue <- as.double(as.character(base$revenue))
+base$unit_count <-  as.double(as.character(base$unit_count))
+base$try_1 <- as.integer(as.character(base$try_1))
+base$win_1 <- as.integer(as.character(base$win_1))
+base$try_2 <- as.integer(as.character(base$try_2))
+base$win_2 <- as.integer(as.character(base$win_2))
+base$try_3 <- as.integer(as.character(base$try_3))
+base$win_3 <- as.integer(as.character(base$win_3))
+base$ttp <- as.integer(as.character(base$ttp))
+base$session_count <- as.integer(as.character(base$session_count))
+```
+
+Normalize `last_moment` to be a date
+```{r}
+base$last_moment_normalized <- as.POSIXct(base$last_moment, origin="1970-01-01")
+```
+
+Since there are some NAs and the different NAs do not belong to the same records, I changed some NAs to 0 and removed the `try` and `win` vars that are NAs.
+```{r}
+sapply(base, function(x) sum(is.na(x)))
+
+base <- base[!is.na(base$try_1),]
+base <- base[!is.na(base$try_2),]
+base <- base[!is.na(base$try_3),]
+base <- base[!is.na(base$win_1),]
+base <- base[!is.na(base$win_2),]
+base <- base[!is.na(base$win_3),]
+
+base$session_count[is.na(base$session_count)] <- 0
+base$ttp[is.na(base$ttp)] <- 0
+base$unit_count[is.na(base$unit_count)] <- 0
+base$revenue[is.na(base$revenue)] <- 0
+```
+
+
+Some simple exploratory analysis to know the data:
+```{r}
+barplot(table(base$country), main = 'Country')
+
+barplot(table(base$device), main = 'Device')
+
+plot(table(base$ttp), main = 'Total time played')
+
+plot(base$ttp, base$session_count, main = 'Total time played in sessions')
+
+barplot(table(as.double(base$revenue)), main = '#Revenue')
+
+plot(base$try_1, base$win_1, main='Activity 1')
+
+plot(base$try_2, base$win_2, main='Activity 2')
+
+plot(base$try_3, base$win_3, main='Activity 3')
+```
+
+It looks like activity 3 is the less popular and activity 2 is more popular. Also, the plots allowed me to verify my cleaning strategies.
+
+Verify the try and game correlations. The plots already showed that they have a high correlation, it's just to verify.
+```{r}
+cor(base$try_1, base$win_1)
+cor(base$try_2, base$win_2)
+cor(base$try_3, base$win_3)
+```
+
+Variable creation. Since the both are high correlated,  I created the `win_rate`, that has more info from both variables.  
+```{r}
+base$win_rate_1 <- round((base$win_1/base$try_1)*100)
+base$win_rate_1[is.nan(base$win_rate_1)] <- 0
+
+base$win_rate_2 <- round((base$win_2/base$try_2)*100)
+base$win_rate_2[is.nan(base$win_rate_2)] <- 0
+
+base$win_rate_3 <- round((base$win_3/base$try_3)*100)
+base$win_rate_3[is.nan(base$win_rate_3)] <- 0
+```
+
+
+Verify if there is a cut cut on any win_range that separates the days best. 
+```{r}
+
+r_labels = c('0-10', '10-20', '20-30', '30-40', '40-50','50-60', '60-70', '70-80', '80-90', '90-100')
+r_breaks = c(-Inf, 10, 20, 30, 40, 50, 60, 70, 80, 90, +Inf)
+
+# activity 1
+
+win_range <- cut(base$win_rate_1, breaks = r_breaks, labels = r_labels)
+
+u = data.frame(as.factor(win_range), base$days_active)
+mean_range <- c(mean(base$win_rate_1[base$days_active == 1]), mean(base$win_rate_1[base$days_active == 2]), mean(base$win_rate_1[base$days_active == 3]), mean(base$win_rate_1[base$days_active == 4]), mean(base$win_rate_1[base$days_active == 5]), mean(base$win_rate_1[base$days_active == 6]), mean(base$win_rate_1[base$days_active == 7]), mean(base$win_rate_1[base$days_active == 8]))
+
+barplot(mean_range, main = 'Mean active day for each win range in activity 1', col=heat.colors(1), names.arg=c("1","2","3","4","5", "6", "7","8"))
+
+#activity 2
+
+win_range <- cut(base$win_rate_2, breaks = r_breaks, labels = r_labels)
+
+u = data.frame(as.factor(win_range), base$days_active)
+mean_range <- c(mean(base$win_rate_2[base$days_active == 1]), mean(base$win_rate_2[base$days_active == 2]), mean(base$win_rate_2[base$days_active == 3]), mean(base$win_rate_2[base$days_active == 4]), mean(base$win_rate_2[base$days_active == 5]), mean(base$win_rate_2[base$days_active == 6]), mean(base$win_rate_2[base$days_active == 7]), mean(base$win_rate_2[base$days_active == 8]))
+
+barplot(mean_range, main = 'Mean active day for each win range in activity 2', col=heat.colors(1), names.arg=c("1","2","3","4","5", "6", "7","8"))
+
+#activity 3
+
+win_range <- cut(base$win_rate_3, breaks = r_breaks, labels = r_labels)
+
+u = data.frame(as.factor(win_range), base$days_active)
+mean_range <- c(mean(base$win_rate_3[base$days_active == 1]), mean(base$win_rate_3[base$days_active == 2]), mean(base$win_rate_3[base$days_active == 3]), mean(base$win_rate_3[base$days_active == 4]), mean(base$win_rate_3[base$days_active == 5]), mean(base$win_rate_3[base$days_active == 6]), mean(base$win_rate_3[base$days_active == 7]), mean(base$win_rate_3[base$days_active == 8]))
+
+mean_range[is.infinite(mean_range)] <- 0
+
+barplot(mean_range, main = 'Mean active day for each win range in activity 3', col=heat.colors(1), names.arg=c("1","2","3","4","5", "6", "7","8"))
+```
+
+Based on the graphs, I chose a cut using the day 1 `win_rate` (the smallest) to create the `high_win_rate` variable.
+
+```{r}
+base$high_win_rate_1 <- base$win_rate_1 >= 60
+
+base$high_win_rate_2 <- base$win_rate_2 >= 50
+
+base$high_win_rate_3 <- base$win_rate_3 >= 20
+```
+
+Verify `session_count`, and create a variable `less_than_three_sessions` and `play_more_thirty_min`. Also verify if the player has more than 50% of wins in at least one activity.
+
+```{r}
+session_range <- cut(base$session_count, breaks = r_breaks, labels = r_labels)
+
+u = data.frame(as.factor(session_range), base$days_active)
+mean_range <- c(mean(base$session_count[base$days_active == 1]), mean(base$session_count[base$days_active == 2]), mean(base$session_count[base$days_active == 3]), mean(base$session_count[base$days_active == 4]), mean(base$session_count[base$days_active == 5]), mean(base$session_count[base$days_active == 6]), mean(base$session_count[base$days_active == 7]), mean(base$session_count[base$days_active == 8]))
+
+mean_range[is.infinite(mean_range)] <- 0
+
+barplot(mean_range, main = 'Mean active day for each session count', col=heat.colors(1), names.arg=c("1","2","3","4","5", "6", "7","8"))
+
+base$less_than_three_sessions <- base$session_count < 3
+
+#ttp
+
+ttp_range <- cut(base$ttp, breaks = r_breaks, labels = r_labels)
+
+u = data.frame(as.factor(ttp_range), base$days_active)
+mean_range <- c(mean(base$ttp[base$days_active == 1]), mean(base$ttp[base$days_active == 2]), mean(base$ttp[base$days_active == 3]), mean(base$ttp[base$days_active == 4]), mean(base$ttp[base$days_active == 5]), mean(base$ttp[base$days_active == 6]), mean(base$ttp[base$days_active == 7]), mean(base$ttp[base$days_active == 8]))
+
+barplot(mean_range, main = 'Mean active day for each tpp', col=heat.colors(1), names.arg=c("1","2","3","4","5", "6", "7","8"))
+
+base$play_more_thirty_min <- base$ttp > 1800
+
+base$more_than_half_wins <- ifelse( base$high_win_rate_1 > 0, TRUE, ifelse(base$high_win_rate_2 > 0, TRUE, ifelse(base$high_win_rate_3, TRUE, FALSE)))
+```
+
+Generate a train and validation samples. Train has 70% of observations and validation has 30%. Definie a MSE function to validate the algorithms.
+
+```{r}
+set.seed(78)
+sample_size <- floor(0.7 * length(base[,1]))
+training_data_rows <- sample(seq_len(nrow(base)), size = sample_size)
+train_data <- base[training_data_rows,]
+test_data <- base[-training_data_rows,]
+base_list <- list(train_data, test_data)
+train_set <- base_list[[1]]
+test_set <- base_list[[2]]
+
+MSE = function(m, o){
+  mean((m - o)^2)
+}
+```
+
+Final model - Linear regression model 
+Has the best MSE for the test set
+
+```{r}
+fit <- lm(days_active ~ play_more_thirty_min + country + device + session_count * ttp + less_than_three_sessions + unit_count + revenue + high_win_rate_2 + win_rate_1 + win_rate_2 + win_rate_3, data = train_set)
+summary(fit)
+
+test_set$days_predict <- round(predict(fit, test_set))
+
+test_set$days_predict[test_set$days_predict > 8] <- 8
+
+MSE(test_set$days_predict, test_set$days_active)
+```
+
+```{r}
+all_fit <- lm(days_active ~ more_than_half_wins + less_than_five_sessions + last_hour_played + country + device + session_count * ttp + unit_count + revenue + try_1 + try_2 + try_3 + win_1 + win_2 + win_3 + win_rate_1 + win_rate_2 + win_rate_3 + high_win_rate_1 + high_win_rate_2 + high_win_rate_3, data = train_set)
+summary(best_fit)
+
+step <- stepAIC(all_fit, direction="both")
+step$anova # display results 
+
+best_fit <- lm(days_active ~ less_than_five_sessions + country + device + session_count + ttp + unit_count + try_1 + win_2 + win_3 + win_rate_2 + win_rate_3 + high_win_rate_1 + session_count*ttp, data = train_set)
+summary(best_fit)
+
+test_set$days_predict <- round(predict(best_fit, test_set))
+
+MSE(test_set$days_predict, test_set$days_active)
+```
+
+```{r}
+###############
+
+tree_fit <- randomForest(days_active ~ country + device + session_count + ttp + unit_count + revenue + try_1 + try_2 + try_3 + win_1 + win_2 + win_3, data = train_set, importance=TRUE, na.action = na.omit)
+print(tree_fit)
+round(importance(tree_fit), 2)
+summary(tree_fit)
+
+test_set$tree_days_predict <- round(predict(tree_fit, test_set))
+
+MSE(test_set$tree_days_predict, test_set$days_active)
+```
